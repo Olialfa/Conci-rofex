@@ -58,7 +58,7 @@
 
 <div class="actions">
   <button class="btn btn-blue" id="btnConc" disabled onclick="conciliar()">⚡ Conciliar</button>
-  <button class="btn btn-green hidden" id="btnExp" onclick="exportar()">📊 Exportar CSV</button>
+  <button class="btn btn-green hidden" id="btnExp" onclick="exportar()">  📊 Exportar Excel</button>
 </div>
 
 <div class="error hidden" id="errorBox"></div>
@@ -245,29 +245,69 @@
     container.innerHTML = `<div style="overflow-x:auto"><table>${thead}${tbody}</table></div>`;
   }
 
-  function toCSV(rows) {
-    if (!rows.length) return "";
-    const keys = Object.keys(rows[0]);
-    const esc = v => `"${String(v).replace(/"/g,'""')}"`;
-    return [keys.map(esc).join(","), ...rows.map(r=>keys.map(k=>esc(r[k]??'')).join(","))].join("\n");
-  }
+  function applyStyles(ws, data, headerColor) {
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const ncols = range.e.c + 1;
 
-  function download(content, name) {
-    const blob = new Blob(["\uFEFF"+content], {type:"text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download=name; a.click();
-    URL.revokeObjectURL(url);
+    // Ancho de columnas
+    ws['!cols'] = Array(ncols).fill({ wch: 22 });
+
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({r:R, c:C});
+        if (!ws[addr]) ws[addr] = { v: "", t: "s" };
+        const isHeader = R === 0;
+        const isEven = R % 2 === 0;
+        ws[addr].s = {
+          font: { name: "Calibri", sz: 11, bold: isHeader, color: { rgb: isHeader ? "FFFFFF" : "1E293B" } },
+          fill: { fgColor: { rgb: isHeader ? headerColor : (isEven ? "F8FAFC" : "FFFFFF") } },
+          alignment: { horizontal: isHeader ? "center" : "left", vertical: "center" },
+          border: {
+            top:    { style:"thin", color:{ rgb:"E2E8F0" } },
+            bottom: { style:"thin", color:{ rgb:"E2E8F0" } },
+            left:   { style:"thin", color:{ rgb:"E2E8F0" } },
+            right:  { style:"thin", color:{ rgb:"E2E8F0" } },
+          }
+        };
+      }
+    }
   }
 
   function exportar() {
     const r = resultado;
-    const todo = [
-      ...r.conciliadas.map(x=>({Codigo:x.cod, Cantidad_A:x.cantA, Cantidad_B:x.cantB, Filas_A:x.filasA, Filas_B:x.filasB, Estado:"Conciliado"})),
-      ...r.diferencias.map(x=>({Codigo:x.cod, Cantidad_A:x.cantA, Cantidad_B:x.cantB, Diferencia:x.dif, Filas_A:x.filasA, Filas_B:x.filasB, Estado:"Diferencia"})),
-      ...r.soloEnA.map(x=>({Codigo:x.cod, Cantidad_A:x.cantA, Filas_A:x.filasA, Estado:"Solo en A"})),
-      ...r.soloEnB.map(x=>({Codigo:x.cod, Cantidad_B:x.cantB, Filas_B:x.filasB, Estado:"Solo en B"})),
+    const wb = XLSX.utils.book_new();
+
+    const sheets = [
+      {
+        name: "✅ Conciliadas",
+        color: "065F46",
+        rows: r.conciliadas.map(x=>({ Codigo:x.cod, Cantidad_A:x.cantA, Cantidad_B:x.cantB, Filas_A:x.filasA, Filas_B:x.filasB, Estado:"Conciliado" }))
+      },
+      {
+        name: "⚠️ Diferencias",
+        color: "991B1B",
+        rows: r.diferencias.map(x=>({ Codigo:x.cod, Cantidad_A:x.cantA, Cantidad_B:x.cantB, Diferencia:x.dif, Filas_A:x.filasA, Filas_B:x.filasB, Estado:"Diferencia" }))
+      },
+      {
+        name: "🔵 Solo en A",
+        color: "1E40AF",
+        rows: r.soloEnA.map(x=>({ Codigo:x.cod, Cantidad_A:x.cantA, Filas_A:x.filasA, Estado:"Solo en A" }))
+      },
+      {
+        name: "🟢 Solo en B",
+        color: "065F46",
+        rows: r.soloEnB.map(x=>({ Codigo:x.cod, Cantidad_B:x.cantB, Filas_B:x.filasB, Estado:"Solo en B" }))
+      },
     ];
-    download(toCSV(todo), "conciliacion_especies.csv");
+
+    sheets.forEach(s => {
+      if (!s.rows.length) return;
+      const ws = XLSX.utils.json_to_sheet(s.rows);
+      applyStyles(ws, s.rows, s.color);
+      XLSX.utils.book_append_sheet(wb, ws, s.name);
+    });
+
+    XLSX.writeFile(wb, "conciliacion_especies.xlsx");
   }
 </script>
 </body>
